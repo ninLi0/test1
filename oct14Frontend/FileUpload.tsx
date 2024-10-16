@@ -7,6 +7,7 @@ import axios from 'axios';
 import Aes from 'react-native-aes-crypto';
 import RNFS from 'react-native-fs';
 import { Base64 } from 'js-base64'; // Import Base64 encoding
+import { Buffer } from 'buffer'; // To handle encoding conversions
 
 type FileUploadProps = {
   onUploadSuccess: () => void;
@@ -47,6 +48,15 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess, aesKey }) => {
 
   // Function to upload the selected file
   const uploadFile = async (file: DocumentPickerResponse) => {
+    // if (aesKey) {
+    //     console.log('AES key loaded from secure storage.');
+    //     Alert.alert('Info', 'AES key loaded from secure storage.');
+
+    //     // Displaying the AES key
+    //     Alert.alert('AES Key', aesKey);
+
+    //     // Displaying the type of aesKey
+    //     Alert.alert('AES Key Type', typeof aesKey);}
     if (!aesKey) {
       Alert.alert('Error', 'AES key is not available. Cannot encrypt the file.');
       return;
@@ -67,6 +77,28 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess, aesKey }) => {
       console.log('Generated IV length (bytes):', iv.length);
 
       // Encrypt the file data using AES-CBC
+
+        // Displaying the type of aesKey
+    //   function isBase64(str: string): boolean {
+    //     const base64Regex = /^(?:[A-Za-z0-9+\/]{4})*(?:[A-Za-z0-9+\/]{2}==|[A-Za-z0-9+\/]{3}=)?$/;
+    //     return base64Regex.test(str);
+    //     }
+          
+    //   function isBuffer(value: any): boolean {
+    //     return Buffer.isBuffer(value);
+    //     }
+          
+    //   function isHex(str: string): boolean {
+    //     const hexRegex = /^[0-9a-fA-F]+$/;
+    //     return hexRegex.test(str) && str.length % 2 === 0; // Hex strings must have an even number of characters
+    //     }
+          
+    //   console.log("Is AES Key Hexadecimal:", isHex(aesKey)); // true
+    //   console.log("Is IV Hexadecimal:", isHex(iv)); // true
+    //   console.log("Is File Data Base64:", isBase64(fileData)); // true
+      console.log("file data:", (fileData))
+      console.log("AES Key:", (aesKey)); // true
+      console.log("iv:", (iv));
       const encryptedData = await Aes.encrypt(fileData, aesKey, iv, 'aes-256-cbc');
       console.log('Encrypted data:', encryptedData);
 

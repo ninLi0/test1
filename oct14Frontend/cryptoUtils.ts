@@ -155,6 +155,7 @@ export const retrieveAESKey = async (): Promise<string | null> => {
 };
 
 
+
 /**
  * Deletes the AES key from secure storage.
  * @returns True if deletion was successful, else false.

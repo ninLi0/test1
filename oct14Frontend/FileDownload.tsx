@@ -3,7 +3,10 @@ import { Button, View, Text, Alert, ActivityIndicator, StyleSheet } from 'react-
 import RNFS from 'react-native-fs';
 import axios from 'axios';
 import Aes from 'react-native-aes-crypto';
-import { Buffer } from 'buffer'; // Import Buffer for encoding conversions
+import { Buffer } from 'buffer'; // To handle encoding conversions
+import Share from 'react-native-share'; // Import the Share component
+import { retrieveAESKey } from './cryptoUtils'; // Import the AES key retrieval function
+import { Base64 } from 'js-base64'; // Import Base64 encoding
 
 type FileDownloadProps = {
   fileName: string;
@@ -14,55 +17,118 @@ const FileDownload: React.FC<FileDownloadProps> = ({ fileName, aesKey }) => {
   const [downloadStatus, setDownloadStatus] = useState<string | null>(null);
 
   const downloadFile = async () => {
-    if (!aesKey) {
-      Alert.alert('Error', 'AES key is not available. Cannot decrypt the file.');
-      return;
-    }
-
     try {
+      // Check if AES key is available
+      if (!aesKey) {
+        Alert.alert('Error', 'AES key is not available. Cannot decrypt the file.');
+        console.error('AES key is null or undefined.');
+        return;
+      }
+
       setDownloadStatus('Downloading file...');
       console.log('Starting file download...');
 
-      // Request the encrypted file from the server
-      const response = await axios.get(`http://10.29.155.121:8000/filehandling/download/${fileName}/`, {
-        timeout: 10000, // 10 seconds timeout
-      });
-
-      if (!response.data.encrypted_data || !response.data.iv) {
-        throw new Error('Invalid response from server');
+      // Attempt to download the encrypted file and IV from the server
+      let response;
+      try {
+        response = await axios.get(`http://10.29.155.121:8000/filehandling/download/${fileName}/`, {
+          timeout: 10000, // 10 seconds timeout
+        });
+        console.log('File download response received.');
+      } catch (downloadError: any) {
+        console.error('Error during HTTP GET request:', downloadError);
+        throw new Error(`Failed to download file: ${downloadError.message}`);
       }
 
-      const encryptedData = response.data.encrypted_data; // Base64 string
-      const iv = response.data.iv; // Base64 string
+      // Validate the server response
+      if (!response.data.encrypted_data || !response.data.iv) {
+        console.error('Server response is missing encrypted_data or iv.');
+        throw new Error('Invalid response from server. Missing encrypted data or IV.');
+      }
 
+      const encryptedData = response.data.encrypted_data; // Base64-encoded encrypted data
+      const iv = response.data.iv; // Base64-encoded IV
+      console.log('AES Key (Base64):', aesKey);
       console.log('Encrypted Data (Base64):', encryptedData);
       console.log('IV (Base64):', iv);
 
       setDownloadStatus('Decrypting file...');
-      console.log('Starting file decryption...');
+      console.log('Starting decryption process...');
 
-      // Convert AES key and IV from Base64 to Hex
-      const aesKeyHex = Buffer.from(aesKey, 'base64').toString('hex');
-      const ivHex = Buffer.from(iv, 'base64').toString('hex');
-
-      console.log('AES Key (Hex):', aesKeyHex);
-      console.log('IV (Hex):', ivHex);
+      // Decode IV from Base64 to Hex
+      let ivHex;
+      try {
+        ivHex = Buffer.from(iv, 'base64').toString('hex');
+        console.log('IV (Hex):', ivHex);
+      } catch (ivError: any) {
+        console.error('Error decoding IV from Base64:', ivError);
+        throw new Error(`Failed to decode IV: ${ivError.message}`);
+      }
 
       // Decrypt the file using AES-CBC
-      const decryptedData = await Aes.decrypt(encryptedData, aesKeyHex, ivHex, 'aes-256-cbc');
-      console.log('Decryption completed.');
+      let decryptedData;
+      try {
+        console.log('encryptedData :', encryptedData);
+        console.log('encryptedData length:', (encryptedData.length));
+        decryptedData = await Aes.decrypt(encryptedData, aesKey, ivHex, 'aes-256-cbc');
+        console.log('File decrypted successfully.');
+        console.log('Decrypted Data:', decryptedData);
+      } catch (decryptError: any) {
+        console.error('Decryption error:', decryptError);
+        throw new Error(`Decryption failed: ${decryptError.message}`);
+      }
 
-      // Save the decrypted file to the device's file system
-      const path = `${RNFS.DocumentDirectoryPath}/${fileName}`;
-      await RNFS.writeFile(path, decryptedData, 'base64'); // 'decryptedData' is Base64-encoded
-      console.log(`File saved to ${path}`);
+      // Convert decrypted binary string to Base64
+      let decryptedDataBase64;
+      try {
+        decryptedDataBase64 = Buffer.from(decryptedData, 'latin1').toString('base64');
+        console.log('Decrypted Data converted to Base64.');
+      } catch (conversionError: any) {
+        console.error('Error converting decrypted data to Base64:', conversionError);
+        throw new Error(`Failed to convert decrypted data: ${conversionError.message}`);
+      }
+
+      // Save the decrypted file to the device's file system as Base64
+      const filePath = `${RNFS.DocumentDirectoryPath}/${fileName}`;
+      try {
+        await RNFS.writeFile(filePath, decryptedDataBase64, 'base64'); // Save as Base64
+        console.log(`File saved successfully at ${filePath}`);
+      } catch (writeError: any) {
+        console.error('Error writing decrypted file to disk:', writeError);
+        throw new Error(`Failed to save the decrypted file: ${writeError.message}`);
+      }
 
       setDownloadStatus('File downloaded and decrypted successfully!');
       Alert.alert('Success', `File "${fileName}" downloaded and saved.`);
+
+      // Trigger the share functionality to save to the Files app
+      try {
+        await shareFile(filePath);
+        console.log('Share function executed successfully.');
+      } catch (shareError: any) {
+        console.error('Error during file sharing:', shareError);
+        Alert.alert('Error', `File downloaded but failed to share: ${shareError.message}`);
+      }
     } catch (error: any) {
-      console.error('Error during file download:', error);
+      // General catch for any errors not previously caught
+      console.error('General error during file download and decryption:', error);
       setDownloadStatus('File download failed');
       Alert.alert('Error', `File download failed: ${error.message}`);
+    }
+  };
+
+  // Function to trigger the share functionality
+  const shareFile = async (filePath: string) => {
+    try {
+      await Share.open({
+        url: `file://${filePath}`, // Share the file from local storage
+        type: 'application/octet-stream', // Set the appropriate MIME type (adjust based on your file type)
+      });
+      console.log('File shared successfully.');
+    } catch (error: any) {
+      console.error('Error sharing the file:', error);
+      Alert.alert('Error', 'Failed to share the file.');
+      throw error; // Rethrow to allow higher-level catch to handle it
     }
   };
 
